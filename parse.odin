@@ -30,28 +30,7 @@ genus := map[state]options {
 	.paragraph = {false, true, true }
 }
 
-
-close :: proc( s: state , w: ^Writer) {
-	#partial switch s {
-	case .paragraph:
-		strings.write_string(&w.b, "</p>" )
-	case .heading:
-		head := fmt.aprintf( "<h%d>%s</h%d>", w.heading_level, strings.to_string(w.heading), w.heading_level )
-		defer delete(head)
-
-		strings.builder_reset( &w.heading )
-		strings.write_string(&w.b, head )
-	}
-}
-
-open :: proc( s: state , w: ^Writer) {
-	#partial switch s {
-	case .paragraph:
-		strings.write_string(&w.b, "<p>" )
-	}
-}
-
-update_stack_state :: proc(s: ^[dynamic]state, st: state, w: ^Writer ) {
+update_stack_state :: proc(s: ^[dynamic]state, st: state, w: ^Writer, open, close: proc(w: ^Writer, s:state) ) {
 	for len(s)>0 && genus[peek(s^)].is_meta {
 		pop(s)
 	}
@@ -61,13 +40,13 @@ update_stack_state :: proc(s: ^[dynamic]state, st: state, w: ^Writer ) {
 	}
 
 	if genus[st].do_pop do for len(s)>0  {
-		close(pop(s), w)
+		close(w, pop(s))
 	}
-	open(st, w)
+	open(w, st )
 	append(s, st)
 }
 
-to_html :: proc(md: string) -> string {
+parse :: proc(md: string, open,close: proc(w: ^Writer, s: state) ) -> string {
 	/*
 	The parser works with a stack of states, when a state needs
 	to be push it check which elements needs to be poped from the
@@ -85,7 +64,7 @@ to_html :: proc(md: string) -> string {
 	case '#':
 		switch peek(s)  {
 		case .newline:
-			update_stack_state(&s, .count_heading, &w )
+			update_stack_state(&s, .count_heading, &w, open, close )
 			w.heading_level = 1
 		case .count_heading:
 			w.heading_level += 1
@@ -95,14 +74,14 @@ to_html :: proc(md: string) -> string {
 			strings.write_rune(&w.b, c )
 		}
 	case '\n':
-		update_stack_state(&s, .newline, &w )
+		update_stack_state(&s, .newline, &w, open, close )
 	case:
 		switch peek(s) {
 		case .newline:
-			update_stack_state(&s, .paragraph, &w )
+			update_stack_state(&s, .paragraph, &w, open,close )
 			strings.write_rune(&w.b, c )
 		case .count_heading:
-			update_stack_state(&s, .heading, &w )
+			update_stack_state(&s, .heading, &w, open, close )
 		case .heading:
 			strings.write_rune(&w.heading, c )
 		case .paragraph:
@@ -111,7 +90,7 @@ to_html :: proc(md: string) -> string {
 	}
 
 	for len(s)>0 {
-		close(pop(&s), &w)
+		close(&w, pop(&s))
 	}
 	return strings.to_string(w.b)
 }
